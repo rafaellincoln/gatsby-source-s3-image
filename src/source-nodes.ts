@@ -29,6 +29,33 @@ export interface SourceS3Options {
   protocol?: string
 }
 
+/**
+ * Recursively fetches all items from the given bucket,
+ * making multiple requests if necessary
+ *
+ * @param awsS3Options name of the bucket to fetch
+ * @param s3 s3 client to use
+ */
+const fetchBucketItems = async (awsS3Options: S3.Types.ListObjectsV2Request, s3: S3): Promise<S3.ObjectList> => {
+  const s3Entities: S3.ObjectList = []
+  let nextContinuationToken: undefined | string = undefined
+  while (true) {
+    const listObjectsResponse = await s3.listObjectsV2({
+      ...awsS3Options,
+      ContinuationToken: nextContinuationToken,
+    });
+
+    s3Entities.push.apply(
+      s3Entities,
+      _.get(listObjectsResponse, 'Contents', [])
+    )
+    if (!listObjectsResponse.IsTruncated) {
+      return s3Entities
+    }
+    nextContinuationToken = listObjectsResponse.NextContinuationToken
+  }
+}
+
 export const sourceNodes = async (
   { actions, cache, createNodeId, getNodes, reporter, store },
   {
@@ -55,11 +82,7 @@ export const sourceNodes = async (
 
   const s3: S3 = createS3Instance({ accessKeyId, domain, secretAccessKey })
 
-  // prettier-ignore
-  const listObjectsResponse: S3.ListObjectsV2Output =
-    await s3.listObjectsV2(awsS3Options).promise()
-
-  const s3Entities: S3.ObjectList = _.get(listObjectsResponse, 'Contents', [])
+  const s3Entities: S3.ObjectList = await fetchBucketItems(awsS3Options, s3);
   if (_.isEmpty(s3Entities)) {
     return []
   }
